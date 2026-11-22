@@ -48,7 +48,8 @@ LINKS = qmv:qcmd qcp:qcmd imv:icmd icp:icmd
 
 all-local:
 	@for l in $(LINKS); do \
-	  [ -e "$${l%%:*}" ] || $(LN_S) "$${l#*:}" "$${l%%:*}"; \
+	  test -h "$${l%%:*}" || test -e "$${l%%:*}" || \
+	    $(LN_S) "$${l#*:}" "$${l%%:*}"; \
 	done
 
 install-exec-hook:

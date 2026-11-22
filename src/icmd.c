@@ -25,6 +25,7 @@
 #include <stdio.h>  	    	/* C89 */
 #include <errno.h>  	    	/* C89 */
 #include <locale.h> 	    	/* gnulib (POSIX) */
+#include <string.h>		/* C89 */
 #include <stdbool.h>	    	/* gnulib (POSIX) */
 #include "line-editing.h"
 #include <getopt.h>		/* gnulib (POSIX) */
@@ -38,6 +39,7 @@
 #include "yesno.h"  	    	/* gnulib */
 #include "version-etc.h"    	/* gnulib */
 #include "xalloc.h"		/* gnulib */
+#include "xstrndup.h"		/* gnulib */
 #include "dirname.h"		/* gnulib */
 #include "common/error.h"
 #include "common/io-utils.h"
@@ -61,11 +63,72 @@ const char version_etc_copyright[] = "Copyright (C) 2001, 2002, 2004, 2005, 2007
 
 static char *first_text = NULL;
 
+#if USE_LIBEDIT
+/* libedit's readline emulation clears the line after its startup and
+   pre-input hooks have run, so rl_insert_text can't pre-fill it.
+   libedit's own el_push queues the text as input instead. */
+static EditLine *el;
+static History *hist;
+
+static char *
+prompt(EditLine *e)
+{
+    return "> ";
+}
+
+static void
+init_line_editing(void)
+{
+    HistEvent ev;
+
+    el = el_init(program_name, stdin, stdout, stderr);
+    hist = history_init();
+    history(hist, &ev, H_SETSIZE, 100);
+    el_set(el, EL_HIST, history, hist);
+    el_set(el, EL_PROMPT, prompt);
+    el_set(el, EL_EDITOR, "emacs");
+    /* Restores the terminal before int_signal_handler runs. */
+    el_set(el, EL_SIGNAL, 1);
+    el_source(el, NULL);
+}
+
+/* Read a line, starting with TEXT already typed. Returns NULL at EOF. */
+static char *
+read_new_name(const char *history_text, const char *text)
+{
+    HistEvent ev;
+    const char *line;
+    int count;
+
+    history(hist, &ev, H_ENTER, history_text);
+    el_push(el, text);
+    line = el_gets(el, &count);
+    if (line == NULL || count <= 0)
+        return NULL;
+    return xstrndup(line, strcspn(line, "\n"));
+}
+#else
 static int
 insert_first_text(void)
 {
     return rl_insert_text(first_text);
 }
+
+static void
+init_line_editing(void)
+{
+    rl_readline_name = base_name(program_name);
+    rl_startup_hook = insert_first_text;
+}
+
+/* Read a line, starting with TEXT already typed. Returns NULL at EOF. */
+static char *
+read_new_name(const char *history_text, const char *text)
+{
+    add_history(history_text);
+    return readline("> ");
+}
+#endif
 
 static void
 int_signal_handler(int signal)
@@ -321,14 +384,12 @@ main(int argc, char **argv)
     srcfile_stripped = xstrdup(srcfile);
     strip_trailing_slashes(srcfile_stripped);
 
-    rl_readline_name = base_name(program_name);
+    init_line_editing();
     first_text = xstrdup(srcfile_stripped);
     for (;;) {
         char *newname;
 
-	add_history(srcfile_stripped);
-	rl_startup_hook = insert_first_text;
-	newname = readline("> ");
+	newname = read_new_name(srcfile_stripped, first_text);
 
 	if (newname != NULL) {
 	    trim(newname);
@@ -348,14 +409,22 @@ main(int argc, char **argv)
                 }
 
                 free(srcfile_stripped);
-                memcpy(args+1, argv+first_cmd_opt, (argc-first_cmd_opt+1) * sizeof(char *));
                 if (posixly_correct || no_more_opts) {
+                    memcpy(args+1, argv+first_cmd_opt, (argc-first_cmd_opt+1) * sizeof(char *));
                     args[argc-first_cmd_opt+1] = newname;
                     args[argc-first_cmd_opt+2] = NULL;
                 } else {
-                    args[argc-first_cmd_opt+1] = "--";
-                    args[argc-first_cmd_opt+2] = newname;
-                    args[argc-first_cmd_opt+3] = NULL;
+                    /* BSD mv and cp stop reading options at the first
+                       operand, so `--' goes before the source file,
+                       not after it. */
+                    int d, n = 1;
+                    for (d = first_cmd_opt; d < argc; d++)
+                        if (argv[d] != files[0])
+                            args[n++] = argv[d];
+                    args[n++] = "--";
+                    args[n++] = files[0];
+                    args[n++] = newname;
+                    args[n] = NULL;
                 }
                 args[0] = command;
                 if (execvp(command, args) < 0)
