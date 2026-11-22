@@ -18,6 +18,8 @@
  */
 
 #include <config.h>
+#include <sys/stat.h>			/* POSIX */
+#include <dirent.h>			/* POSIX */
 #include <stdlib.h> 	    		/* C89 */
 #include <string.h> 	    		/* gnulib (C89) */
 #include <stdbool.h>	    		/* gnulib (POSIX) */
@@ -32,7 +34,57 @@
 #include "common/error.h"
 #include "common/llist.h"
 #include "common/hmap.h"
+#include "dirname.h"			/* gnulib */
 #include "qcmd.h"
+
+/* Is NAME, in the directory part of PATH, spelled exactly so in that
+   directory's listing? */
+static bool
+listed_as(const char *path, const char *name)
+{
+    char *dir = mdir_name(path);
+    DIR *dp;
+    struct dirent *ep;
+    bool found = false;
+
+    if (dir == NULL)
+	return false;
+    dp = opendir(dir);
+    free(dir);
+    if (dp == NULL)
+	return false;
+    while (!found && (ep = readdir(dp)) != NULL)
+	found = (strcmp(ep->d_name, name) == 0);
+    closedir(dp);
+    return found;
+}
+
+/* Does the new name of SPEC belong to a file other than its own?
+   On a case-insensitive file system (macOS's default), renaming
+   `a' to `A' finds `A' already there: it is the same file under
+   another spelling, and the rename has to be allowed. Two hard
+   links to one file are a different matter -- each is listed under
+   its own name -- and renaming one onto the other is refused. */
+static bool
+destination_taken(const FileSpec *spec)
+{
+    char *old_path = cat_files(work_directory, spec->old_name);
+    char *new_path = cat_files(work_directory, spec->new_name);
+    struct stat old_st, new_st;
+    bool taken;
+
+    if (lstat(new_path, &new_st) != 0)
+	taken = false;
+    else if (lstat(old_path, &old_st) == 0
+	     && old_st.st_dev == new_st.st_dev && old_st.st_ino == new_st.st_ino
+	     && !listed_as(new_path, last_component(new_path)))
+	taken = false;
+    else
+	taken = true;
+    free(old_path);
+    free(new_path);
+    return taken;
+}
 
 /* Find renames that have the same destination filename.
  * Mark these as STATUS_DUPLICATE.
@@ -79,15 +131,13 @@ topologic_sort(LList *renames, ApplyPlan *plan)
     for (llist_iterator(renames, &it); it.has_next(&it); ) {
 	FileSpec *spec = it.next(&it);
 	if (spec->status == STATUS_UNCHECKED) {
-	    char *fullname = cat_files(work_directory, spec->new_name);
-	    if (!file_exists(fullname)) {
+	    if (!destination_taken(spec)) {
 		hmap_put(available, spec->old_name, spec);
 		spec->status = STATUS_APPLY;
 		llist_add(plan->ok, spec);
 	    } else {
 		llist_add(pending, spec);
 	    }
-	    free(fullname);
 	}
     }
 
@@ -177,12 +227,10 @@ new_exists_scan(LList *renames, ApplyPlan *plan)
     for (llist_iterator(renames, &it); it.has_next(&it); ) {
 	FileSpec *spec = it.next(&it);
     	if (spec->status == STATUS_UNCHECKED) {
-	    char *fullname = cat_files(work_directory, spec->new_name);
-	    if (file_exists(fullname)) {
+	    if (destination_taken(spec)) {
 	    	spec->status = STATUS_NEW_EXISTS;
 	    	llist_add(plan->error, spec);
 	    }
-	    free(fullname);
 	}
     }
 
