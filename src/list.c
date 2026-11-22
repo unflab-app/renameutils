@@ -1,4 +1,4 @@
-/* listing.c - Running and parsing the output of ls(1). 
+/* list.c - Listing the files to edit.
  *
  * Copyright (C) 2001, 2002, 2004, 2005, 2007, 2008 Oskar Liljeblad
  *
@@ -13,16 +13,20 @@
  * GNU Library General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
+
+/* Files used to be listed by running `ls --quoting-style=c' and parsing
+ * its output, which needs GNU ls. They're now read directly, honouring
+ * the subset of ls options that qmv has always accepted, with the same
+ * orderings and tie-breaks GNU ls uses. */
 
 #include <config.h>
 #include <sys/types.h>	    	/* POSIX */
-#include <sys/wait.h>	    	/* POSIX */
 #include <unistd.h>		/* gnulib (POSIX) */
 #include <fcntl.h>  	    	/* gnulib (POSIX) */
 #include <sys/stat.h>	    	/* gnulib (POSIX) */
+#include <dirent.h>		/* POSIX */
 #include <getopt.h> 	    	/* gnulib (POSIX) */
 #include <stdbool.h>		/* gnulib (C99) */
 #include <gettext.h>		/* gnulib (gettext) */
@@ -32,36 +36,51 @@
 #include <stdlib.h> 	    	/* C89 */
 #include <stdio.h>  	    	/* C89 */
 #include <string.h> 	    	/* gnulib (C89) */
+#include "filevercmp.h"		/* gnulib */
+#include "quote.h"		/* gnulib */
 #include "quotearg.h"	    	/* gnulib */
+#include "stat-time.h"		/* gnulib */
+#include "timespec.h"		/* gnulib */
 #include "xalloc.h"		/* gnulib */
 #include "xvasprintf.h"		/* gnulib */
 #include "common/common.h"
 #include "common/io-utils.h"
 #include "common/string-utils.h"
-#include "common/strbuf.h"
 #include "common/error.h"
 #include "common/llist.h"
 #include "common/hmap.h"
 #include "qcmd.h"
 
-// FIXME: breaks tmp (see below)
-#define ls_assert(e)	\
-    if (!(e)) { \
-	internal_error("unexpected output from `%s' (%s:%d)\nLine:\n%s\n", \
-			ls_program, __FILE__, __LINE__, line); \
-    }
-
-static bool run_ls(char **args, pid_t *ls_pid, int *ls_fd);
-static bool clean_ls(pid_t ls_pid, int ls_fd, int *status);
-static bool process_ls_output(char *firstdir, LList *files, int ls_fd);
-
-static LList *ls_options;
-static int old_dir = -1;
-
 enum {
     SORT_OPT = 2000,
     TIME_OPT,
 };
+
+enum sort_key { SORT_NAME, SORT_NONE, SORT_SIZE, SORT_TIME, SORT_VERSION, SORT_EXTENSION };
+enum time_key { TIME_MTIME, TIME_ATIME, TIME_CTIME };
+
+static struct {
+    bool all;			/* -a, -A: include names starting with . */
+    bool ignore_backups;	/* -B: exclude names ending with ~ */
+    bool directory;		/* -d: list directories, not their contents */
+    bool reverse;		/* -r */
+    bool recursive;		/* -R */
+    enum sort_key sort;
+    bool sort_given;		/* an explicit sort beats the one -c/-u imply */
+    enum time_key time;
+} opts;
+
+/* One name to list. NAME is what is sorted on: the entry's own name in
+ * a directory, or the operand as given. PATH is what goes in the list,
+ * relative to the work directory. */
+typedef struct {
+    char *name;
+    char *path;
+    struct stat st;
+    bool have_st;
+} Entry;
+
+static int old_dir = -1;
 
 static struct option ls_option_table[] = {
     { "all",            no_argument,       NULL, 'a' },
@@ -75,6 +94,14 @@ static struct option ls_option_table[] = {
     { 0 },
 };
 
+static void
+reset_ls_options(void)
+{
+    memset(&opts, 0, sizeof(opts));
+    opts.sort = SORT_NAME;
+    opts.time = TIME_MTIME;
+}
+
 struct option *
 append_ls_options(const struct option *options)
 {
@@ -82,9 +109,7 @@ append_ls_options(const struct option *options)
     int c;
     int d;
 
-    /* this should be static, but since */
-    /* append_ls_options is called early this is ok */
-    ls_options = llist_new();
+    reset_ls_options();
 
     for (c = 0; options[c].name != NULL; c++);
     d = sizeof(ls_option_table)/sizeof(*ls_option_table);
@@ -100,25 +125,72 @@ void
 display_ls_help(FILE *out)
 {
     fprintf(out, _("\
-Listing (`ls') options:\n\
+Listing options:\n\
   -a, --all                  do not hide entries starting with .\n\
-  -A, --almost-all           do not list implied . and ..\n\
-  -B, --ignore-backups       do not list implied entries ending with ~\n\
-  -c                         sort by ctime\n\
-  -d, --directory            list directory entries instead of contents\n\
-  -r, --reverse              reverse order while sorting\n\
+  -A, --almost-all           same as -a (. and .. are never listed)\n\
+  -B, --ignore-backups       do not list entries ending with ~\n\
+  -c                         sort by status change time, newest first\n\
+  -d, --directory            list directories themselves, not their contents\n\
+  -r, --reverse              reverse the sort order\n\
   -R, --recursive            list subdirectories recursively\n\
-  -S                         sort by file size\n\
-      --sort=WORD            extension -X, none -U, size -S, time -t,\n\
-                               version -v, status -c, time -t, atime -u,\n\
-                               access -u, use -u\n\
-      --time=WORD            show time as WORD instead of modification time:\n\
-                               atime, access, use, ctime or status; use\n\
-                               specified time as sort key if --sort=time\n\
-  -t                         sort by modification time\n\
-  -u                         sort by access time\n\
+  -S                         sort by file size, largest first\n\
+      --sort=WORD            sort by WORD instead of name: none (-U),\n\
+                               size (-S), time (-t), version, extension (-X)\n\
+      --time=WORD            sort by time WORD instead of modification\n\
+                               time: atime, access, use (-u); ctime,\n\
+                               status (-c)\n\
+  -t                         sort by modification time, newest first\n\
+  -u                         sort by access time, newest first\n\
   -U                         do not sort; list entries in directory order\n\
   -X                         sort alphabetically by entry extension\n"));
+}
+
+static bool
+set_sort(const char *word)
+{
+    static const struct { const char *word; enum sort_key sort; } words[] = {
+	{ "name", SORT_NAME },
+	{ "none", SORT_NONE },
+	{ "size", SORT_SIZE },
+	{ "time", SORT_TIME },
+	{ "version", SORT_VERSION },
+	{ "extension", SORT_EXTENSION },
+    };
+    size_t c;
+
+    for (c = 0; c < sizeof(words)/sizeof(*words); c++) {
+	if (strcmp(word, words[c].word) == 0) {
+	    opts.sort = words[c].sort;
+	    opts.sort_given = true;
+	    return true;
+	}
+    }
+    warn(_("invalid argument %s for `--sort'"), quote(word));
+    return false;
+}
+
+static bool
+set_time(const char *word)
+{
+    static const struct { const char *word; enum time_key time; } words[] = {
+	{ "mtime", TIME_MTIME },
+	{ "modification", TIME_MTIME },
+	{ "atime", TIME_ATIME },
+	{ "access", TIME_ATIME },
+	{ "use", TIME_ATIME },
+	{ "ctime", TIME_CTIME },
+	{ "status", TIME_CTIME },
+    };
+    size_t c;
+
+    for (c = 0; c < sizeof(words)/sizeof(*words); c++) {
+	if (strcmp(word, words[c].word) == 0) {
+	    opts.time = words[c].time;
+	    return true;
+	}
+    }
+    warn(_("invalid argument %s for `--time'"), quote(word));
+    return false;
 }
 
 void
@@ -144,7 +216,8 @@ import_command(char **args)
     new_files = llist_new();
     map_files = hmap_new();
     while ((rc = getline(&buf, &bufsize, fh)) > 0) {
-        buf[rc-1] = '\0';
+	if (buf[rc-1] == '\n')
+	    buf[rc-1] = '\0';
 
         if (strcmp(buf, ".") != 0 && strcmp(buf, "..") != 0) {
             FileSpec *spec;
@@ -155,12 +228,14 @@ import_command(char **args)
 
             if (hmap_contains_key(map_files, spec->old_name)) {
                 warn(_("%s: file already listed"), quotearg(spec->old_name));
+                free_file_spec(spec);
             } else {
                 hmap_put(map_files, spec->old_name, spec);
                 llist_add(new_files, spec);
             }
         }
     }
+    free(buf);
     hmap_free(map_files);
     if (ferror(fh)) {
         warn(_("%s: cannot read from file: %s\n"), quotearg(args[1]), errstr);
@@ -184,7 +259,7 @@ list_command(char **args)
 
     for (argc = 1; args[argc] != NULL; argc++);
 
-    llist_clear(ls_options);
+    reset_ls_options();
 
     optind = 0;
     while (true) {
@@ -193,7 +268,8 @@ list_command(char **args)
 	    break;
 	if (c == '?')
 	    return;
-	process_ls_option(c);
+	if (!process_ls_option(c, optarg))
+	    return;
     }
 
     if (list_files(args+optind)) {
@@ -202,55 +278,54 @@ list_command(char **args)
     }
 }
 
-void
-process_ls_option(int c)
+bool
+process_ls_option(int c, const char *arg)
 {
     switch (c) {
     case 'a': /* all */
-	llist_add(ls_options, "--all");
-	break;
     case 'A': /* almost-all */
-	llist_add(ls_options, "--almost-all");
+	opts.all = true;
 	break;
     case 'B': /* ignore-backups */
-	llist_add(ls_options, "--ignore-backups");
+	opts.ignore_backups = true;
 	break;
     case 'c':
-	llist_add(ls_options, "--time=ctime");
+	opts.time = TIME_CTIME;
 	break;
     case 'd': /* directory */
-	llist_add(ls_options, "--directory");
+	opts.directory = true;
 	break;
     case 'r': /* reverse */
-	llist_add(ls_options, "--reverse");
+	opts.reverse = true;
 	break;
     case 'R': /* recursive */
-	llist_add(ls_options, "--recursive");
+	opts.recursive = true;
 	break;
     case 'S':
-	llist_add(ls_options, "--sort=size");
+	opts.sort = SORT_SIZE;
+	opts.sort_given = true;
 	break;
     case SORT_OPT: /* sort */
-	llist_add(ls_options, "--sort");
-	llist_add(ls_options, optarg);
-	break;
+	return set_sort(arg);
     case 't':
-	llist_add(ls_options, "--sort=time");
+	opts.sort = SORT_TIME;
+	opts.sort_given = true;
 	break;
     case TIME_OPT: /* time */
-	llist_add(ls_options, "--time");
-	llist_add(ls_options, optarg);
-	break;
+	return set_time(arg);
     case 'u':
-	llist_add(ls_options, "--time=atime");
+	opts.time = TIME_ATIME;
 	break;
     case 'U':
-	llist_add(ls_options, "--sort=none");
+	opts.sort = SORT_NONE;
+	opts.sort_given = true;
 	break;
     case 'X':
-	llist_add(ls_options, "--sort=extension");
+	opts.sort = SORT_EXTENSION;
+	opts.sort_given = true;
 	break;
     }
+    return true;
 }
 
 bool
@@ -287,80 +362,235 @@ cwd_to_work_directory()
     return true;
 }
 
+/* The comparisons below are GNU ls's: newest and largest first, ties
+ * broken by name, and names compared in the locale's collation order. */
+
+static int
+compare_names(const char *a, const char *b)
+{
+    int rc;
+
+    errno = 0;
+    rc = strcoll(a, b);
+    if (errno != 0 || rc == 0)
+	rc = strcmp(a, b);
+    return rc;
+}
+
+static const char *
+extension(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    return dot != NULL ? dot : "";
+}
+
+static struct timespec
+entry_time(const Entry *e)
+{
+    switch (opts.time) {
+    case TIME_ATIME:
+	return get_stat_atime(&e->st);
+    case TIME_CTIME:
+	return get_stat_ctime(&e->st);
+    default:
+	return get_stat_mtime(&e->st);
+    }
+}
+
+static enum sort_key
+effective_sort(void)
+{
+    /* As in GNU ls, -c, -u and --time also mean "sort by that time",
+       unless a sort order was asked for explicitly. */
+    if (!opts.sort_given && opts.time != TIME_MTIME)
+	return SORT_TIME;
+    return opts.sort;
+}
+
+static int
+compare_entries(const void *pa, const void *pb)
+{
+    const Entry *a = *(const Entry **) pa;
+    const Entry *b = *(const Entry **) pb;
+    int rc = 0;
+
+    switch (effective_sort()) {
+    case SORT_SIZE:
+	if (a->st.st_size != b->st.st_size)
+	    rc = a->st.st_size > b->st.st_size ? -1 : 1;
+	break;
+    case SORT_TIME:
+	rc = -timespec_cmp(entry_time(a), entry_time(b));
+	break;
+    case SORT_VERSION:
+	rc = filevercmp(a->name, b->name);
+	break;
+    case SORT_EXTENSION:
+	rc = compare_names(extension(a->name), extension(b->name));
+	break;
+    default:
+	break;
+    }
+    if (rc == 0)
+	rc = compare_names(a->name, b->name);
+    return opts.reverse ? -rc : rc;
+}
+
+static void
+sort_entries(Entry **entries, size_t count)
+{
+    if (effective_sort() != SORT_NONE && count > 1)
+	qsort(entries, count, sizeof(*entries), compare_entries);
+}
+
+static Entry *
+new_entry(const char *name, const char *path)
+{
+    Entry *e = xmalloc(sizeof(Entry));
+
+    e->name = xstrdup(name);
+    e->path = xstrdup(path);
+    e->have_st = (lstat(path, &e->st) == 0);
+    return e;
+}
+
+static void
+free_entry(Entry *e)
+{
+    free(e->name);
+    free(e->path);
+    free(e);
+}
+
+static void
+add_spec(LList *files, HMap *seen, const char *path)
+{
+    FileSpec *spec;
+
+    if (hmap_contains_key(seen, path)) {
+	warn(_("%s: file already listed"), quotearg(path));
+	return;
+    }
+    spec = new_file_spec();
+    spec->old_name = xstrdup(path);
+    spec->new_name = xstrdup(path);
+    hmap_put(seen, spec->old_name, spec);
+    llist_add(files, spec);
+}
+
+/* Add the contents of directory DIR (relative to the work directory;
+ * "." for the work directory itself) to FILES, and with -R, the
+ * contents of its subdirectories after it. */
+static void
+list_directory(const char *dir, LList *files, HMap *seen)
+{
+    DIR *dp;
+    struct dirent *ep;
+    Entry **entries = NULL;
+    size_t count = 0;
+    size_t alloc = 0;
+    size_t c;
+
+    dp = opendir(dir);
+    if (dp == NULL) {
+	warn(_("%s: cannot open directory: %s"), quotearg(dir), errstr);
+	return;
+    }
+    for (;;) {
+	char *path;
+
+	errno = 0;
+	ep = readdir(dp);
+	if (ep == NULL)
+	    break;
+	if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
+	    continue;
+	if (!opts.all && ep->d_name[0] == '.')
+	    continue;
+	if (opts.ignore_backups && ep->d_name[strlen(ep->d_name)-1] == '~')
+	    continue;
+
+	if (strcmp(dir, ".") == 0)
+	    path = xstrdup(ep->d_name);
+	else
+	    path = xasprintf("%s%s%s", dir, dir[strlen(dir)-1] == '/' ? "" : "/", ep->d_name);
+	if (count == alloc)
+	    entries = x2nrealloc(entries, &alloc, sizeof(*entries));
+	entries[count++] = new_entry(ep->d_name, path);
+	free(path);
+    }
+    if (errno != 0)
+	warn(_("%s: cannot read directory: %s"), quotearg(dir), errstr);
+    closedir(dp);
+
+    sort_entries(entries, count);
+    for (c = 0; c < count; c++)
+	add_spec(files, seen, entries[c]->path);
+
+    /* Like ls -R: subdirectories in the order listed, and never through
+       a symbolic link, since lstat sees the link rather than its target. */
+    if (opts.recursive) {
+	for (c = 0; c < count; c++) {
+	    if (entries[c]->have_st && S_ISDIR(entries[c]->st.st_mode))
+		list_directory(entries[c]->path, files, seen);
+	}
+    }
+
+    for (c = 0; c < count; c++)
+	free_entry(entries[c]);
+    free(entries);
+}
+
 /**
  * Generate a list of specified files.
  * Return true if listing succeeded.
- *
- * XXX: clean up management of work_directory, old and old_dir
  */
 bool
 list_files(char **args)
 {
-    char *firstdir;
-    LList *ls_args_list;
-    char **ls_args;
-    pid_t ls_pid;
-    int ls_fd;
-    int status;
+    Entry **operands = NULL;
+    size_t count = 0;
+    size_t alloc = 0;
+    size_t c;
+    bool list_work_dir;
+    HMap *seen;
 
     free(work_directory);
     work_directory = xstrdup(".");
 
-    ls_args_list = llist_clone(ls_options);	/* llist_add_all! */
-    llist_add_last(ls_args_list, "--");
-    llist_add_first(ls_args_list, "--quoting-style=c");
-    llist_add_first(ls_args_list, ls_program);
-
-    if (llist_contains(ls_options, "--directory")) {
-	firstdir = ".";
+    /* A single directory becomes the work directory, so the names in
+       the editor are relative to it. Without arguments, the current
+       directory is listed. Otherwise directory arguments are skipped,
+       unless -d asks for the directories themselves. */
+    list_work_dir = (args[0] == NULL);
+    if (args[0] != NULL && args[1] == NULL && !opts.directory && is_directory(args[0])) {
+	char *old = work_directory;
+	work_directory = xstrdup(args[0]);
+	if (!cwd_to_work_directory()) {
+	    free(work_directory);
+	    work_directory = old;
+	    return false;
+	}
+	free(old);
+	list_work_dir = true;
     } else {
-	firstdir = (*args == NULL ? NULL : *args);
-    }
+	for (; *args != NULL; args++) {
+	    Entry *e;
 
-    for (; *args != NULL; args++) {
-	if (*args == firstdir && args[1] == NULL) {
-            if (is_directory(*args)) {
-                char *old = work_directory;
-                work_directory = xstrdup(*args);
-                if (!cwd_to_work_directory()) {
-                    free(work_directory);
-                    work_directory = old;
-                    return false;
-                }
-                free(old);
-                llist_add(ls_args_list, ".");
-                firstdir = ".";
-            } else {
-	        llist_add(ls_args_list, *args);
-            }
-	} else {
-            if (is_directory(*args) && !llist_contains(ls_options, "--directory")) {
-                warn(_("%s: skipping directory argument"), *args);
-                if (*args == firstdir)
-                    firstdir = ".";
-            }
-            else
-                llist_add(ls_args_list, *args);
+	    if (!opts.directory && is_directory(*args)) {
+		warn(_("%s: skipping directory argument"), quotearg(*args));
+		continue;
+	    }
+	    e = new_entry(*args, *args);
+	    if (!e->have_st) {
+		warn(_("%s: cannot access: %s"), quotearg(*args), errstr);
+		free_entry(e);
+		continue;
+	    }
+	    if (count == alloc)
+		operands = x2nrealloc(operands, &alloc, sizeof(*operands));
+	    operands[count++] = e;
 	}
-    }
-
-    ls_args = (char **) llist_to_null_terminated_array(ls_args_list);
-    llist_free(ls_args_list);
-    if (!run_ls(ls_args, &ls_pid, &ls_fd)) {
-	warn(_("cannot execute `%s': %s"), ls_program, errstr);
-	if (old_dir != -1) {
-	    old_dir = -1;
-	    close(old_dir);
-	}
-	free(ls_args);
-	clean_ls(ls_pid, ls_fd, &status);
-	return false;
-    }
-    free(ls_args);
-
-    if (!cwd_from_work_directory()) {
-	clean_ls(ls_pid, ls_fd, &status);
-	return false;
     }
 
     llist_clear(edit_file_list);
@@ -371,165 +601,19 @@ list_files(char **args)
     llist_iterate(work_files, free_file_spec);
     llist_clear(work_files);
 
-    if (!process_ls_output(firstdir, work_files, ls_fd)) {
-	warn(_("cannot read `%s' output: %s"), ls_program, errstr);
-	clean_ls(ls_pid, ls_fd, &status);
-	return false;
+    seen = hmap_new();
+    sort_entries(operands, count);
+    for (c = 0; c < count; c++) {
+	if (strcmp(operands[c]->path, ".") != 0 && strcmp(operands[c]->path, "..") != 0)
+	    add_spec(work_files, seen, operands[c]->path);
+	free_entry(operands[c]);
     }
-    if (!clean_ls(ls_pid, ls_fd, &status))
-	return false;
-    if (!WIFEXITED(status)) {
-	warn(_("ls: abnormal exit"));
-	return false;
-    }
+    free(operands);
+    if (list_work_dir && !opts.directory)
+	list_directory(".", work_files, seen);
+    hmap_free(seen);
 
-    return true;
-}
-
-/**
- * Execute ls(1) in a child process. A pipe is created
- * so that the output of ls can be read from the parent
- * process.
- *
- * @param args
- *   The argument vector to use when executing ls.
- */
-static bool
-run_ls(char **args, pid_t *ls_pid, int *ls_fd)
-{
-    int child_pipe[2];
-    pid_t child_pid;
-
-    *ls_fd = -1;
-    *ls_pid = -1;
-
-    if (pipe(child_pipe) == -1)
-	return false;
-    *ls_fd = child_pipe[0];
-
-    child_pid = fork();
-    if (child_pid == -1) {
-	close(child_pipe[1]);
-	return false;
-    }
-    if (child_pid == 0) {
-	if (close(child_pipe[0]) == -1)
-	    die(_("cannot close file: %s"), errstr);
-	if (dup2(child_pipe[1], STDOUT_FILENO) == -1)
-	    die(_("cannot duplicate file descriptor: %s"), errstr);
-	execvp(ls_program, args);
-	die(_("cannot execute `%s': %s"), ls_program, errstr);
-    }
-    *ls_pid = child_pid;
-
-    if (close(child_pipe[1]) == -1)
-	return false;
-
-    return true;
-}
-
-/**
- * Wait for the ls child process to exit.
- * @returns
- *   true if everything went successfully.
- */
-static bool
-clean_ls(pid_t ls_pid, int ls_fd, int *status)
-{
-    if (ls_fd != -1 && close(ls_fd) == -1)
-	return false;
-    if (ls_pid != -1 && waitpid(ls_pid, status, 0) != ls_pid)
-	return false;
-    /* We ignore the return code of the ls child process. The error
-     * will be discovered when reading the output of ls anyway.
-     */
-    return true;
-}
-
-/* Read and parse output from ls(1), converting it
- * into a list of file paths.
- *
- * @param firstdir
- *   The first non-option argument to ls. If this is a directory,
- *   it is used as the default path for files listed.
- * @returns
- *   true if processing succeeded (otherwise errno will be set).
- */
-static bool
-process_ls_output(char *firstdir, LList *files, int ls_fd)
-{
-    HMap *map_files;
-    FILE *lsout;
-    StrBuf *dir;
-    char *line;
-
-    map_files = hmap_new();
-
-    lsout = fdopen(ls_fd, "r");
-    if (lsout == NULL)
-	return false;
-
-    dir = strbuf_new();
-    if (firstdir != NULL
-	    && strcmp(firstdir, ".") != 0
-	    && is_directory(firstdir)) {
-	strbuf_set(dir, firstdir);
-	if (firstdir[strlen(firstdir)-1] != '/')
-	    strbuf_append_char(dir, '/');
-    }
-
-    while ((line = read_line(lsout)) != NULL) {
-	int len;
-	char *tmp;
-
-	chomp(line);
-	len = strlen(line);
-	if (len != 0) {
-	    ls_assert(line[0] == '"');
-
-    	    /* If line ends with :, then it denotes a directory */
-	    if (line[len-1] == ':') {
-		ls_assert(line[len-2] == '"');
-		line[len-2] = '\0';
-
-		tmp = dequote_output_file(&line[1]);
-		ls_assert(tmp != NULL);
-
-		strbuf_set(dir, tmp);
-		if (strbuf_char_at(dir, strbuf_length(dir)-1) != '/')
-		    strbuf_append_char(dir, '/');
-	    } else {
-		ls_assert(line[len-1] == '"');
-		line[len-1] = '\0';
-
-		tmp = dequote_output_file(&line[1]);
-		ls_assert(tmp != NULL);
-
-    	    	if (strcmp(tmp, ".") != 0 && strcmp(tmp, "..") != 0) {
-		    FileSpec *spec;
-
-		    spec = new_file_spec();
-		    spec->old_name = xasprintf("%s%s", strbuf_buffer(dir), tmp);
-		    spec->new_name = xstrdup(spec->old_name);
-
-		    if (hmap_contains_key(map_files, spec->old_name)) {
-			warn(_("%s: file already listed"), quotearg(spec->old_name));
-		    } else {
-			hmap_put(map_files, spec->old_name, spec);
-			/*printf("add %p\n", spec);*/
-			llist_add(files, spec);
-		    }
-		}
-	    }
-
-	    free(tmp);
-	}
-	free(line);
-    }
-    strbuf_free(dir);
-    hmap_free(map_files);
-
-    return !ferror(lsout);
+    return cwd_from_work_directory();
 }
 
 /* Create and initialize a FileSpec instance.

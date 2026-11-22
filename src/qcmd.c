@@ -46,7 +46,6 @@ bool verbose = false;
 LList *work_files;
 char *work_directory;
 char *editor_program = NULL;
-char *ls_program = NULL;
 char *edit_filename = NULL;
 EditFormat *format = &dual_column_format;
 ApplyPlan *plan = NULL;
@@ -97,7 +96,6 @@ Format-related options:\n\
 Other options:\n\
   -i, --interactive          start in command mode\n\
   -e, --editor=PROGRAM       path of program to edit text file with\n\
-      --ls=PROGRAM           path of program to list files with\n\
   -v, --verbose              be more verbose\n\
       --dummy                do not copy (\"dummy\" mode)\n\
 \n\
@@ -177,7 +175,7 @@ main(int argc, char **argv)
     for (;;) {
     	int c;
 
-	c = getopt_long(argc, argv, "aABcdrRStuUXvf:o:e:i", option_table, NULL);
+	c = getopt_long(argc, argv, "aABcdrRStuUXvf:o:e:i", all_options, NULL);
 	if (c == -1)
 	    break;
 
@@ -202,7 +200,7 @@ main(int argc, char **argv)
 	    editor_program = optarg;
 	    break;
         case LS_OPT: /* --ls */
-            ls_program = optarg;
+            warn(_("--ls is ignored: files are now listed without ls"));
             break;
         case COMMAND_OPT:
             force_command = optarg;
@@ -217,7 +215,8 @@ main(int argc, char **argv)
 	    display_help(stdout);
 	    exit(0);
 	default:
-	    process_ls_option(c);
+	    if (!process_ls_option(c, optarg))
+		exit(1);
 	    break;
 	}
     }
@@ -237,9 +236,6 @@ main(int argc, char **argv)
     	    && (editor_program = getenv("EDITOR")) == NULL)
     	editor_program = "editor";
     editor_program = xstrdup(editor_program);
-
-    if (ls_program == NULL)
-        ls_program = xstrdup("ls");
 
     /* Parse format options */
     if (format_options != NULL && !format->parse_options(format_options))
@@ -267,7 +263,6 @@ main(int argc, char **argv)
     llist_free(work_files);
     free(all_options);
     free(editor_program);
-    free(ls_program);
     if (unlink(edit_filename) < 0)
     	warn("cannot delete %s: %s\n", quotearg(edit_filename), errstr);
     free(edit_filename);

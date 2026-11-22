@@ -71,7 +71,6 @@ extern bool simulate;
 extern LList *work_files;   	/* contains FileSpec * */
 extern char *work_directory;
 extern char *editor_program;
-extern char *ls_program;
 extern char *edit_filename;
 extern char *program;
 extern EditFormat *format;
@@ -90,7 +89,7 @@ char *edit_format_generator(const char *text, int state);
 void import_command(char **args);
 void list_command(char **args);
 bool list_files(char **args);
-void process_ls_option(int c);
+bool process_ls_option(int c, const char *arg);
 struct option *append_ls_options(const struct option *options);
 FileSpec *new_file_spec(void);
 void free_file_spec(FileSpec *spec);

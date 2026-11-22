@@ -52,8 +52,9 @@ and interactive mode, see below. This also applies to \fBqcp\fP.
 The \fBqcmd\fP program works just like \fBqmv\fP and \fBqcp\fP but allows
 you to specify which command to execute.
 
-The \fBls\fP(1) program is used to list files to rename or copy. Therefore
-\fBqmv\fP, \fBqcp\fP, and \fBqcmd\fP accepts some \fBls\fP options.
+\fBqmv\fP, \fBqcp\fP and \fBqcmd\fP accept some of the options of
+\fBls\fP(1) to choose and order the files to list, and order them the way
+GNU \fBls\fP does. They don't run \fBls\fP to do it.
 .SH RENAMING/COPYING PROCESS
 The process of renaming or copying files consists of many steps. They are:
 .TP
@@ -98,52 +99,53 @@ These programs follow the usual GNU command line syntax, with long
 options starting with two dashes (`-').
 .TP
 .B \-a, \-\-all
-(Passed to \fBls\fP.) Do not hide entries starting with `.'.
+Do not hide entries starting with `.'.
 .TP
 .B \-A, \-\-almost\-all
-(Passed to \fBls\fP.) Do not list implied `.' and `..'.
+The same as \-a, since `.' and `..' are never listed.
 .TP
 .B \-B, \-\-ignore\-backups
-(Passed to \fBls\fP.) Do not list implied entries ending with `~'.
+Do not list entries ending with `~'.
 .TP
 .B \-c
-(Passed to \fBls\fP.) Sort by ctime (time of last modification).
+Sort by status change time (ctime), newest first.
 .TP
 .B \-\-command=\fICOMMAND\fR
 Execute \fICOMMAND\fR instead of mv or cp.
 .TP
 .B \-d, \-\-directory
-(Passed to \fBls\fP.) List directory entires instead of contents.
+List directories themselves, instead of their contents.
 .TP
 .B \-r, \-\-reverse
-(Passed to \fBls\fP.) Reverse order while sorting.
+Reverse the sort order.
 .TP
 .B \-R, \-\-recursive
-(Passed to \fBls\fP.) List subdirectories recursively.
+List subdirectories recursively. Symbolic links to directories are
+not followed.
 .TP
 .B \-S
-(Passed to \fBls\fP.) Sort by file size.
+Sort by file size, largest first.
 .TP
 .B \-\-sort=\fIWORD\fR
-(Passed to \fBls\fP.) Sort by extension (\-X), none (\-U), size (\-S),
-time (\-t), version (\-v), status (\-c), time (\-t), atime (\-u),
-or access (\-u).
+Sort by \fIWORD\fR instead of by name: none (\-U), size (\-S),
+time (\-t), version, or extension (\-X).
 .TP
 .B \-\-time=\fIWORD\fP
-(Passed to \fBls\fP.) If sorting is done by time (\-\-sort=time), sort
-by atime, access, use, ctime or status time.
+Use time \fIWORD\fP instead of modification time when sorting by time:
+atime, access or use (\-u); ctime or status (\-c). Unless another sort
+order is given, this also sorts by that time.
 .TP
 .B \-t
-(Passed to \fBls\fP.) Sort by modification time.
+Sort by modification time, newest first.
 .TP
 .B \-u
-(Passed to \fBls\fP.) Sort by access time.
+Sort by access time, newest first.
 .TP
 .B \-U
-(Passed to \fBls\fP.) Do not sort; list entries in directory order.
+Do not sort; list entries in directory order.
 .TP
 .B \-X
-(Passed to \fBls\fP.) Sort alphabetically by entry extension.
+Sort alphabetically by entry extension.
 .TP
 .B \-f, \-\-format=\fIFORMAT\fP
 Change edit format of text file. See below for possible values.
@@ -169,9 +171,7 @@ set, the \fBEDITOR\fP environment variable. If that is not set either,
 use the program called \fBeditor\fP.
 .TP
 .B \-\-ls=\fIPROGRAM\fP
-Specify path of the ls program. If you omit the directory, the executable
-will be searched for in the directories specified by the PATH environment
-variable.
+Ignored, with a warning. Files used to be listed by running \fIPROGRAM\fP.
 .TP
 .B \-v, \-\-verbose
 Be more verbose about what is being done.
@@ -291,8 +291,8 @@ The following commands are available:
 .TP
 .B ls, list \fR[\fIOPTIONS\fR].. [\fIFILES\fR]..
 Select files to rename. If no files are specified, select all files in
-current directory. The accepted options are those which are passed to
-\fBls\fP(1). Use `help ls' to display a list of these.
+current directory. The accepted options are the listing options above.
+Use `help ls' to display a list of them.
 .TP
 .B import \fIFILE\fR
 Read files to rename from a text file. Each line should correspond to an
