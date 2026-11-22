@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4 -I gnulib-m4
 
-SUBDIRS = po gnulib-po gnulib-lib src
+SUBDIRS = po gnulib-po gnulib-lib src tests
 
 .PHONY: rpm debian
 

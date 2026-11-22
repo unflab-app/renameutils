@@ -39,5 +39,6 @@ AC_CONFIG_FILES([Makefile
                  src/Makefile
                  src/common/Makefile
                  src/editformats/Makefile
+                 tests/Makefile
                  renameutils.spec])
 AC_OUTPUT
