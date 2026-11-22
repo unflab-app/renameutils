@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['[0-9]*.[0-9]*.[0-9]*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CFLAGS: -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS arm64, os: macos-latest, readline: auto }
+          - { name: Linux x86_64, os: ubuntu-24.04, readline: gnu }
+          - { name: Linux arm64, os: ubuntu-24.04-arm, readline: gnu }
+          - { name: Linux x86_64 (libedit), os: ubuntu-24.04, readline: libedit }
+    steps:
+      # Full history, so the version can come from the nearest tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch gnulib
+        run: git submodule update --init --depth 1 gnulib
+
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy autoconf automake autopoint gettext libreadline-dev libedit-dev
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install autoconf automake gettext
+
+      - run: ./bootstrap
+      - run: ./configure --with-readline=${{ matrix.readline }}
+      - run: make -j4
+      - run: make check VERBOSE=1
+
+      - name: Show what the programs link against
+        run: |
+          for p in src/qcmd src/icmd src/deurlname; do
+            if [ "$RUNNER_OS" = macOS ]; then otool -L "$p"; else ldd "$p"; fi
+          done
+      - name: Link only against the system on macOS
+        if: runner.os == 'macOS'
+        run: |
+          bad=$(otool -L src/qcmd src/icmd src/deurlname | awk 'NR > 1 && !/:$/ && $1 !~ "^(/usr/lib/|/System/)" { print }')
+          [ -z "$bad" ] || { echo "$bad"; exit 1; }
+
+  # GCC 15 defaults to C23, where calls through unprototyped function
+  # pointers are errors. Ubuntu's runners don't have it yet.
+  gcc15:
+    name: Linux x86_64 (GCC 15, Fedora)
+    runs-on: ubuntu-24.04
+    container: fedora:42
+    steps:
+      - name: Install build tools
+        run: dnf install -qy autoconf automake gettext-devel gcc make readline-devel python3 git findutils diffutils wget
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch gnulib
+        run: |
+          git config --global --add safe.directory "$PWD"
+          git submodule update --init --depth 1 gnulib
+      - run: gcc --version | head -1
+      - run: ./bootstrap
+      - run: ./configure
+      - run: make -j4
+      - run: make check VERBOSE=1
+
+  sanitizers:
+    name: Linux x86_64 (ASan, UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git submodule update --init --depth 1 gnulib
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy autoconf automake autopoint gettext libreadline-dev
+      - run: ./bootstrap
+      - run: ./configure CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined"
+      - run: make -j4
+      - run: make check VERBOSE=1
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:abort_on_error=1:print_stacktrace=1
+
+  dist:
+    name: Release tarball
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git submodule update --init --depth 1 gnulib
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy autoconf automake autopoint gettext libreadline-dev
+      - run: ./bootstrap
+      - run: ./configure
+      # Builds and tests the tarball out of tree, and checks that
+      # install and uninstall leave nothing behind.
+      - run: make distcheck
+      - run: sha256sum renameutils-*.tar.* > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            renameutils-*.tar.*
+            SHA256SUMS
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, gcc15, sanitizers, dist]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+      - name: Check the tarball is this tag's version
+        run: |
+          ls renameutils-"$GITHUB_REF_NAME".tar.gz renameutils-"$GITHUB_REF_NAME".tar.xz
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "renameutils $GITHUB_REF_NAME" \
+            --notes "See NEWS for what changed." \
+            renameutils-"$GITHUB_REF_NAME".tar.gz \
+            renameutils-"$GITHUB_REF_NAME".tar.xz \
+            SHA256SUMS
