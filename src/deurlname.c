@@ -18,6 +18,7 @@
  */
 
 #include <config.h>
+#include <fcntl.h>		/* POSIX: AT_FDCWD */
 #include <stdio.h>  	    	    /* C89 */
 #include <string.h> 	    	    /* gnulib (C89) */
 #include <stdlib.h> 	    	    /* C89 */
@@ -30,6 +31,7 @@
 #define N_(String) (String)
 #include "progname.h"	    	    /* gnulib */
 #include "version-etc.h"	    /* gnulib */
+#include "renameatu.h"	    /* gnulib */
 #include "quotearg.h"	    	    /* gnulib */
 #include "configmake.h"		    /* gnulib */
 #include "common/error.h"
@@ -71,6 +73,9 @@ main (int argc, char **argv)
     int rc = EXIT_SUCCESS;
 
     set_program_name(argv[0]);
+    /* Quote file names in messages only when they need it, escaping
+       control characters rather than writing them to the terminal. */
+    set_quoting_style(NULL, c_maybe_quoting_style);
 
     if (setlocale(LC_ALL, "") == NULL)
     	warn(_("cannot set locale: %s\n"), errstr);
@@ -129,7 +134,7 @@ The encoded slash character (%%2f) is left untouched in file names.\n"), program
 	    d = basename-name+1;
 	}
 	for (; name[d] != '\0'; d++) {
-    	    if (name[d] == '%' && isxdigit(name[d+1]) && isxdigit(name[d+2])) {
+    	    if (name[d] == '%' && isxdigit((unsigned char) name[d+1]) && isxdigit((unsigned char) name[d+2])) {
 	    	char newch = (hexvalue(name[d+1]) << 4) | hexvalue(name[d+2]);
 	    	if (newch != '\0' && newch != '/') {
 		    strbuf_append_char(newnamebuf, newch);
@@ -144,7 +149,9 @@ The encoded slash character (%%2f) is left untouched in file names.\n"), program
 	if (strcmp(name, newname) != 0) {
 	    if (verbose)
 	        printf(_("%s => %s\n"), quotearg_n(0, name), quotearg_n(1, newname));
-	    if (rename(name, newname) < 0) {
+	    /* Never replace an existing file: decoding can produce a name
+	       that is already taken ("a%20b" when "a b" exists). */
+	    if (renameatu(AT_FDCWD, name, AT_FDCWD, newname, RENAME_NOREPLACE) < 0) {
 	        warn(_("cannot rename `%s' to `%s': %s"), quotearg_n(0, name), quotearg_n(1, newname), errstr);
                 rc = EXIT_FAILURE;
             }

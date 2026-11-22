@@ -19,6 +19,8 @@
 
 #include <config.h>
 #include <ctype.h>  	    /* C89 */
+#include <wchar.h>	    /* C99 */
+#include <wctype.h>	    /* C99 */
 #include <string.h> 	    /* gnulib (C89) */
 #include "common/common.h"
 #include "common/strbuf.h"
@@ -39,11 +41,10 @@ octal_to_char(const char *str)
 }
 
 /**
- * Quote characters in a string, as is done in C.
- * If show_control_chars is TRUE, all characters
- * except backslash, CR and LF are quoted. Otherwise,
- * backslash and all non-printable characters are
- * quoted.
+ * Quote characters in a string, as is done in C: backslash, and
+ * every byte that isn't part of a printable character in the
+ * current locale. A name in UTF-8 is shown as it is, rather than
+ * as octal escapes for each byte of every non-ASCII character.
  *
  * @param t
  *   The string to quote.
@@ -56,18 +57,40 @@ quote_output_file(const char *t)
     StrBuf *res;
     int c;
 
-    res = strbuf_new();
+    mbstate_t state;
+    size_t len = strlen(t);
 
-    for (c = 0; t[c] != '\0'; c++) {
-	    if (t[c] == '\\') {
-		    strbuf_append(res, "\\\\");
-	    } else if (isprint(t[c])) {
-		    strbuf_append_char(res, t[c]);
-	    } else if (t[c] >= 7 && t[c] <= 13) {
-		    strbuf_appendf(res, "\\%c", c_abbrevs[t[c]-7]);
-	    } else {
-		    strbuf_appendf(res, "\\%03o", t[c] & 0xFF);
-	    }
+    res = strbuf_new();
+    memset(&state, 0, sizeof(state));
+
+    for (c = 0; t[c] != '\0'; ) {
+	unsigned char b = t[c];
+	wchar_t wc;
+	size_t n;
+
+	if (b == '\\') {
+	    strbuf_append(res, "\\\\");
+	    c++;
+	    continue;
+	}
+	n = mbrtowc(&wc, t + c, len - c, &state);
+	if (n == (size_t) -1 || n == (size_t) -2 || n == 0) {
+	    /* Not a valid character: escape this byte, start afresh. */
+	    memset(&state, 0, sizeof(state));
+	    n = 1;
+	} else if (iswprint(wc)) {
+	    strbuf_append_substring(res, t, c, c + n);
+	    c += n;
+	    continue;
+	}
+	/* Escape every byte of a non-printable or invalid character. */
+	for (; n > 0; n--, c++) {
+	    b = t[c];
+	    if (b >= 7 && b <= 13)
+		strbuf_appendf(res, "\\%c", c_abbrevs[b-7]);
+	    else
+		strbuf_appendf(res, "\\%03o", b);
+	}
     }
 
     return strbuf_free_to_string(res);

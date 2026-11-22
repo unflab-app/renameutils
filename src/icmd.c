@@ -211,6 +211,9 @@ main(int argc, char **argv)
     int first_cmd_opt;
 
     set_program_name(argv[0]);
+    /* Quote file names in messages only when they need it, escaping
+       control characters rather than writing them to the terminal. */
+    set_quoting_style(NULL, c_maybe_quoting_style);
     program_base_name = base_name(program_name);
 
     if (setlocale(LC_ALL, "") == NULL)

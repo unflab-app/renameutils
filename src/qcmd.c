@@ -156,6 +156,9 @@ main(int argc, char **argv)
     bool interactive = false;
 
     set_program_name(argv[0]);
+    /* Quote file names in messages only when they need it, escaping
+       control characters rather than writing them to the terminal. */
+    set_quoting_style(NULL, c_maybe_quoting_style);
     program = base_name(program_name);
 
     if (setlocale(LC_ALL, "") == NULL)
@@ -231,10 +234,15 @@ main(int argc, char **argv)
 	die(_("cannot create temporary file: %s"), errstr);
 
     /* Find a suitable editor program */
-    if (editor_program == NULL
-    	    && (editor_program = getenv("VISUAL")) == NULL
-    	    && (editor_program = getenv("EDITOR")) == NULL)
-    	editor_program = "editor";
+    /* An empty VISUAL or EDITOR counts as unset, as it does for most
+       programs that read them; run as a command it would be the file. */
+    if (editor_program == NULL || editor_program[0] == '\0') {
+	editor_program = getenv("VISUAL");
+	if (editor_program == NULL || editor_program[0] == '\0')
+	    editor_program = getenv("EDITOR");
+	if (editor_program == NULL || editor_program[0] == '\0')
+	    editor_program = "editor";
+    }
     editor_program = xstrdup(editor_program);
 
     /* Parse format options */

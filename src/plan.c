@@ -255,9 +255,10 @@ cross_reference_resolve(LList *renames, ApplyPlan *plan)
 	}
 
 	/* Find a temporary name for the new rename */
+	tmp_name = NULL;
 	do {
-	    if (fullname != NULL)
-		free(fullname);
+	    free(fullname);
+	    free(tmp_name);
 	    tmp_name = xasprintf("%s-%d", s1->old_name, tmp_count++);
 	    fullname = cat_files(work_directory, tmp_name);
 	} while (file_exists(fullname) || hmap_contains_key(map_new, tmp_name));

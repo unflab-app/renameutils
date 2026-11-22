@@ -18,6 +18,7 @@
  */
 
 #include <config.h>
+#include <sys/wait.h>			/* POSIX */
 #include <string.h> 	    	    	/* gnulib (C89) */
 #include <stdlib.h> 	    	    	/* C89 */
 #include <stdio.h>  	    	    	/* C89 */
@@ -124,18 +125,24 @@ edit_files(bool all, bool force)
     }
 
     /* Start the editor */
-    cmd = xasprintf("%s %s", editor_program, edit_filename);
-    /* Fortunately, edit_filename usually does not contain
-     * special characters and does not start with a dash. */
+    /* The editor is a shell command, so it may carry arguments
+     * ("code --wait"); the file name is quoted, since TMPDIR may hold
+     * spaces or other characters the shell would act on. */
+    cmd = xasprintf("%s %s", editor_program,
+                    quotearg_style(shell_always_quoting_style, edit_filename));
     rc = system(cmd);
     if (rc == -1) {
-	warn(_("cannot start editor - %s"), quotearg(editor_program), errstr);
-	free(cmd); /* May clobber errno */
+	warn(_("%s: cannot start editor: %s"), quotearg(editor_program), errstr);
+	free(cmd);
 	return false;
     }
-    free(cmd); /* May clobber errno */
-    if (rc != 0) {
-	warn(_("editor exited with status %d"), quotearg(editor_program), rc);
+    free(cmd);
+    if (WIFSIGNALED(rc)) {
+	warn(_("%s: editor killed by signal %d"), quotearg(editor_program), WTERMSIG(rc));
+	return false;
+    }
+    if (!WIFEXITED(rc) || WEXITSTATUS(rc) != 0) {
+	warn(_("%s: editor exited with status %d"), quotearg(editor_program), WIFEXITED(rc) ? WEXITSTATUS(rc) : rc);
 	return false;
     }
 
