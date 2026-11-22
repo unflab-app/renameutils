@@ -5,7 +5,8 @@ AM_CPPFLAGS = \
   -I$(top_builddir)/gnulib-lib
 AM_CFLAGS = -Wall
 
-bin_PROGRAMS = qcmd icmd deurlname
+bin_PROGRAMS = deurlname
+pkglibexec_PROGRAMS = qcmd icmd
 dist_man_MANS = qcmd.1 icmd.1 deurlname.1
 
 qcmd_SOURCES = \
@@ -52,13 +53,17 @@ all-local:
 	    $(LN_S) "$${l#*:}" "$${l%%:*}"; \
 	done
 
+# qcmd and icmd themselves go in libexec: they're only useful under
+# another name, and ipmiutil also installs an icmd.
 install-exec-hook:
+	$(MKDIR_P) "$(DESTDIR)$(bindir)"
 	@for l in $(LINKS); do \
 	  rm -f "$(DESTDIR)$(bindir)/$${l%%:*}"; \
-	  $(LN_S) "$${l#*:}" "$(DESTDIR)$(bindir)/$${l%%:*}"; \
+	  $(LN_S) "$(pkglibexecdir)/$${l#*:}" "$(DESTDIR)$(bindir)/$${l%%:*}"; \
 	done
 
 install-data-hook:
+	$(MKDIR_P) "$(DESTDIR)$(man1dir)"
 	@for l in $(LINKS); do \
 	  rm -f "$(DESTDIR)$(man1dir)/$${l%%:*}.1"; \
 	  $(LN_S) "$${l#*:}.1" "$(DESTDIR)$(man1dir)/$${l%%:*}.1"; \

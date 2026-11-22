@@ -75,11 +75,13 @@ v_warn_errno(const char *msg, va_list ap)
 void
 free_error(void)
 {
-	struct MessageHeader *hdr;
+	struct MessageHeader *hdr = message_header;
 
-	for (hdr = message_header; hdr != NULL; hdr = hdr->old) {
+	while (hdr != NULL) {
+		struct MessageHeader *old = hdr->old;
 		free(hdr->message);
 		free(hdr);
+		hdr = old;
 	}
 	if (error_message != NULL)
 		free(error_message);
@@ -87,7 +89,7 @@ free_error(void)
 
 /**
  * This function should be called when an internal error has
- * occured. It will display a more verbose message, asking
+ * occurred. It will display a more verbose message, asking
  * the user to mail the program author.
  *
  * @param msg
@@ -102,7 +104,7 @@ internal_error(const char *msg, ...)
 	if (program_termination_hook != NULL)
 		program_termination_hook();
 	fprintf(stderr, _("\
-An internal error has occured. Please report this error by sending the\n\
+An internal error has occurred. Please report this error by sending the\n\
 output below to %s.\n\
 \n\
 Program: %s\n\
