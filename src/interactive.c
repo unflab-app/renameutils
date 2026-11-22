@@ -231,7 +231,7 @@ commandmode_mainloop(void)
     struct sigaction action;
     char *prompt;
 
-    rl_readline_name = program_name;
+    rl_readline_name = (char *) program_name;	/* libedit: char * */
     rl_attempted_completion_function = completion;
     rl_basic_word_break_characters = " \t\n\"\\'`@$><=;|&{(,";
 #if USE_LIBEDIT

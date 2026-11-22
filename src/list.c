@@ -273,7 +273,7 @@ list_command(char **args)
     }
 
     if (list_files(args+optind)) {
-        char *fmt = ngettext("%d file listed\n", "%d files listed\n", llist_size(work_files));
+        const char *fmt = ngettext("%d file listed\n", "%d files listed\n", llist_size(work_files));
         printf(fmt, llist_size(work_files));
     }
 }
@@ -638,8 +638,10 @@ new_file_spec(void)
 /* Free the specified FileSpec.
  */
 void
-free_file_spec(FileSpec *spec)
+free_file_spec(void *spec_ptr)
 {
+    FileSpec *spec = spec_ptr;
+
     if (spec->prev_spec != NULL)
     	spec->prev_spec->next_spec = spec->next_spec;
     if (spec->next_spec != NULL)

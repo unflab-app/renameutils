@@ -124,10 +124,9 @@ option_generator(const char *text, int state)
 static void
 output(FILE *out, LList *files)
 {
-    int c = 0;
     LListIterator it;
 
-    for (llist_iterator(files, &it); it.has_next(&it); c++) {
+    for (llist_iterator(files, &it); it.has_next(&it); ) {
 	FileSpec *spec = it.next(&it);
 	char *file;
 
@@ -142,10 +141,9 @@ output(FILE *out, LList *files)
 static bool
 input(FILE *in, LList *files)
 {
-    int c = 0;
     LListIterator it;
 
-    for (llist_iterator(files, &it); it.has_next(&it); c++) {
+    for (llist_iterator(files, &it); it.has_next(&it); ) {
 	FileSpec *spec = it.next(&it);
 	char *file_new;
 	char *tmp;

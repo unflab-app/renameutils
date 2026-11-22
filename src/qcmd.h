@@ -92,7 +92,7 @@ bool list_files(char **args);
 bool process_ls_option(int c, const char *arg);
 struct option *append_ls_options(const struct option *options);
 FileSpec *new_file_spec(void);
-void free_file_spec(FileSpec *spec);
+void free_file_spec(void *spec);
 void free_files(LList *files);
 void display_ls_help(FILE *out);
 bool cwd_to_work_directory();

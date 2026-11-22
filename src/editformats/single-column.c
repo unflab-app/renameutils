@@ -180,9 +180,8 @@ static bool
 input(FILE *in, LList *files)
 {
     LListIterator it;
-    int c = 0;
 
-    for (llist_iterator(files, &it); it.has_next(&it); c++) {
+    for (llist_iterator(files, &it); it.has_next(&it); ) {
 	FileSpec *spec = it.next(&it);
 	char *file_old;
 	char *file_new;
