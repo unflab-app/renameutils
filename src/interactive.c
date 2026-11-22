@@ -180,6 +180,40 @@ FIXME
     exit_warned = true;
 }
 
+#if USE_LIBEDIT
+/* libedit's readline emulation retries a read that SIGINT interrupts,
+   and its line buffer can't be cleared from a signal handler. So the
+   handler only notes the interrupt, and read_char ends the line there:
+   readline returns what had been typed, and the main loop discards it.
+   The effect is GNU readline's -- Ctrl-C abandons the line. */
+static volatile sig_atomic_t interrupted = 0;
+static bool discard_line = false;
+
+static void
+int_signal_handler(int signal)
+{
+    interrupted = 1;
+}
+
+static int
+read_char(FILE *in)
+{
+    unsigned char c;
+
+    for (;;) {
+        ssize_t n = read(in != NULL ? fileno(in) : STDIN_FILENO, &c, 1);
+        if (n == 1)
+            return c;
+        if (n == 0 || errno != EINTR)
+            return EOF;
+        if (interrupted) {
+            interrupted = 0;
+            discard_line = true;
+            return '\n';
+        }
+    }
+}
+#else
 static void
 int_signal_handler(int signal)
 {
@@ -189,6 +223,7 @@ int_signal_handler(int signal)
     rl_end = 0;
     rl_forced_update_display();
 }
+#endif
 
 void
 commandmode_mainloop(void)
@@ -199,10 +234,17 @@ commandmode_mainloop(void)
     rl_readline_name = program_name;
     rl_attempted_completion_function = completion;
     rl_basic_word_break_characters = " \t\n\"\\'`@$><=;|&{(,";
+#if USE_LIBEDIT
+    rl_getc_function = read_char;
+#endif
 
     memset(&action, 0, sizeof(sigaction));
     action.sa_handler = int_signal_handler;
+#if USE_LIBEDIT
+    action.sa_flags = 0;	/* so read_char sees the interrupt */
+#else
     action.sa_flags = SA_RESTART;
+#endif
     if (sigaction(SIGINT, &action, NULL) < 0)
 	die(_("cannot register signal handler: %s"), errstr);
     action.sa_handler = SIG_IGN;
@@ -222,6 +264,13 @@ commandmode_mainloop(void)
 	    terminate_program();
 	    continue;
 	}
+#if USE_LIBEDIT
+	if (discard_line) {
+	    discard_line = false;
+	    free(line);
+	    continue;
+	}
+#endif
 	add_history(line);
 	rc = wordexp(line, &result, WRDE_NOCMD|WRDE_UNDEF);
 	if (rc != 0) {
