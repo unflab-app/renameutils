@@ -1,3 +1,71 @@
+News for the unflab-app fork of renameutils
+===========================================
+
+Releases from https://github.com/unflab-app/renameutils. Upstream's own
+NEWS, up to 0.12.0, follows below the line.
+
+unreleased: renameutils 0.13.0, the first release of the fork.
+
+  Listing:
+  qmv and qcp read directories themselves instead of running `ls
+  --quoting-style=c', so GNU Coreutils is no longer needed. Every listing
+  option orders files as GNU ls does. --ls is accepted and ignored with a
+  warning; the `ls' variable of command mode is gone.
+  The long listing options (--all, --sort, --time and the rest) were
+  rejected as unrecognised on the command line; they now work.
+  An invalid --sort or --time word is an error instead of being ignored.
+
+  Line editing:
+  Build with GNU Readline or libedit (configure --with-readline).
+  imv and icp pre-fill the old name under libedit too, and put `--' before
+  the source file, so that BSD mv and cp read their arguments correctly.
+  Ctrl-C in command mode abandons the line under libedit, as it does
+  under GNU Readline.
+
+  Names:
+  UTF-8 names appear as themselves in the edit file, rather than as an
+  octal escape for every byte of each non-ASCII character.
+  Messages quote names that contain control characters, instead of
+  writing those characters to the terminal.
+  A case-only rename (a to A) works on case-insensitive file systems,
+  such as macOS's default. Renaming onto another hard link to the same
+  file is still refused.
+  A dangling symbolic link counts as an existing file.
+
+  Other fixes:
+  deurlname never replaces an existing file.
+  The editor's file name is quoted for the shell, and a failed editor's
+  real exit status or signal is reported. An empty VISUAL or EDITOR
+  counts as unset.
+  Command mode's help honours PAGER.
+  `import' no longer drops the last character of a final line that has
+  no newline.
+  free_error read memory it had just freed (fix from Debian, Francois
+  Marier).
+  Builds as C23, which GCC 15 defaults to (following Debian's patches by
+  Francois Marier).
+  install-exec-local had $(DESTDIR)($bindir) for $(DESTDIR)$(bindir).
+
+  Installation:
+  qcmd and icmd are installed in libexec, with qmv, qcp, imv and icp
+  linked to them from bindir, since ipmiutil also installs an icmd
+  (Debian bug #1076220; the approach is Chris Hofstaedtler's). Uninstall
+  removes the links.
+
+  Build and project:
+  Current Autoconf, Automake and gnulib, with gnulib as a git submodule
+  and ./bootstrap to generate the build system from git.
+  The French and Swedish translations are kept, but not updated for
+  messages that changed. gnulib's catalogues are fetched at bootstrap
+  rather than committed.
+  A test suite (make check), and CI on macOS and Linux.
+  Bug reports go to https://github.com/unflab-app/renameutils/issues.
+
+
+======================================================================
+Upstream NEWS, as released with renameutils 0.12.0
+======================================================================
+
 2012-04-23: renameutils 0.12.0 released.
   Added `ls' variable and option to specify path of list program
   (suggested by Michael Williams).

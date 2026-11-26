@@ -1,3 +1,92 @@
+renameutils - the unflab-app fork
+=================================
+
+This is a maintained fork of renameutils, the file renaming utilities by
+Oskar Liljeblad: qmv, qcp, imv, icp and deurlname. Upstream's last release
+was 0.12.0, in April 2012.
+
+   https://github.com/unflab-app/renameutils
+
+The fork exists so that renameutils builds and works on current systems --
+macOS in particular, where it is packaged for unflab (https://unflab.app/)
+-- without the GNU tools it used to need at run time. It is a continuation,
+not a rewrite: the programs, their options and their edit formats are the
+ones described in the original README below.
+
+Report bugs to the fork, not to the original author:
+
+   https://github.com/unflab-app/renameutils/issues
+
+What is different
+-----------------
+
+See NEWS for the full list. In short:
+
+ * qmv and qcp no longer run `ls' to list files. They read directories
+   themselves and order them the way GNU ls does, for every listing
+   option they have always accepted. GNU Coreutils is not needed, and the
+   --ls option is accepted but ignored.
+
+ * Line editing works with GNU Readline or with libedit, which macOS
+   provides. imv and icp pre-fill the old name under either, and use the
+   system's mv and cp, GNU or BSD.
+
+ * Names in UTF-8 appear as themselves in the editor, not as octal
+   escapes. Control characters are still escaped, and are quoted in
+   messages rather than written to the terminal.
+
+ * Bug fixes: long listing options such as --sort were always rejected;
+   deurlname could overwrite an existing file; a case-only rename failed
+   on case-insensitive file systems; $PAGER was ignored; and others.
+
+ * The French and Swedish translations in po/ are carried over, but have
+   not been updated for the messages that changed, and are not tested.
+   Translation stays enabled where gettext is available (configure
+   --disable-nls turns it off).
+
+ * qcmd and icmd are installed in libexec, with qmv, qcp, imv and icp
+   linked to them from the bin directory. ipmiutil also has an icmd.
+
+Requirements and building
+-------------------------
+
+To build: a C99 compiler, make, and GNU Readline or libedit.
+`configure --with-readline=gnu' or `=libedit' chooses one; the default
+is GNU Readline if it is found, otherwise libedit. Nothing else is needed
+at run time beyond mv, cp and a text editor.
+
+From a release tarball:
+
+   ./configure && make && make check && make install
+
+From a git checkout, which needs Autoconf 2.71, Automake 1.16, gettext
+0.21 or later (autopoint, and msgfmt for `make dist'), and wget, first run
+
+   ./bootstrap
+
+which fetches the gnulib submodule and gnulib's own translations, and
+generates configure. Releases are
+tagged with plain version numbers (0.12.0, 0.13.0, ...); the tag `gnu'
+marks the original 0.12.0 import, unchanged.
+
+`make check' runs the test suite. The tests of imv, icp and qmv's
+command mode drive a terminal through Python 3, and are skipped without
+it.
+
+Credits
+-------
+
+renameutils is the work of Oskar Liljeblad. Several fixes here come from
+the Debian package maintained by Francois Marier, and from Chris
+Hofstaedtler; see NEWS.
+
+
+======================================================================
+The original README for renameutils 0.12.0 follows, unchanged. Where it
+differs from the notes above -- on requirements, the use of ls, or
+where to report bugs -- the notes above are current.
+======================================================================
+
 renameutils - Introduction
 ==========================
 
