@@ -68,7 +68,7 @@ jobs:
     container: fedora:42
     steps:
       - name: Install build tools
-        run: dnf install -qy autoconf automake gettext-devel gcc make readline-devel python3 git findutils diffutils wget
+        run: dnf install -qy autoconf automake gettext-devel glibc-gconv-extra gcc make readline-devel python3 git findutils diffutils wget
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
