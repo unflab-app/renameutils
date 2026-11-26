@@ -387,6 +387,12 @@ launch_pager(pid_t *child_pid)
 	    die(_("cannot start pager: %s"), errstr);
 	if (dup2(pager_fd[0], STDIN_FILENO) < 0)
 	    die(_("cannot start pager: %s"), errstr);
+	/* PAGER is a shell command, as for man(1); without it, Debian's
+	   pager alternative, then more, then plain cat. */
+	if (getenv("PAGER") != NULL && getenv("PAGER")[0] != '\0') {
+	    execl("/bin/sh", "sh", "-c", getenv("PAGER"), (char *) NULL);
+	    die(_("cannot start pager: %s"), errstr);
+	}
 	execlp("pager", "pager", NULL);
 	if (errno == ENOENT)
 	    execlp("more", "more", NULL);

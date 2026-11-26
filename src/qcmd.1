@@ -354,6 +354,18 @@ edited with `edit'. It cannot be set; only be read with `show'.
 A boolean value is specified as `0', `false', `no', `off'
 or `1', `true', `yes', and `on'. Strings are specified without
 quotes.
+.SH ENVIRONMENT
+.TP
+.B VISUAL, EDITOR
+The editor to edit the file names with, unless \-\-editor is given.
+An empty value counts as unset.
+.TP
+.B PAGER
+The pager for `help' in command mode, run by the shell. Without it,
+\fBpager\fP, \fBmore\fP or \fBcat\fP, whichever is found first.
+.TP
+.B TMPDIR
+Where the file to edit is created.
 .SH EXAMPLES
 Edit names of files in current directory.
 .br

@@ -29,6 +29,8 @@ mkdir "$work/t" && cd "$work/t" || exit 99
 LC_ALL=C
 export LC_ALL
 unset VISUAL EDITOR
+PAGER=cat
+export PAGER
 
 use_utf8_locale() {
   for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8 en_GB.UTF-8; do
