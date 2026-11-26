@@ -4,7 +4,7 @@ News for the unflab-app fork of renameutils
 Releases from https://github.com/unflab-app/renameutils. Upstream's own
 NEWS, up to 0.12.0, follows below the line.
 
-unreleased: renameutils 0.13.0, the first release of the fork.
+2026-11-26: renameutils 0.13.0 released, the first release of the fork.
 
   Listing:
   qmv and qcp read directories themselves instead of running `ls
