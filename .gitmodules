@@ -1,0 +1,4 @@
+[submodule "gnulib"]
+	path = gnulib
+	url = https://github.com/coreutils/gnulib.git
+	branch = stable-202607

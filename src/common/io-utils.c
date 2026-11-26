@@ -21,52 +21,11 @@
 #if HAVE_CONFIG_H
 #include <config.h>
 #endif
-/* As recommended by autoconf for AC_HEADER_DIRENT */
-#if HAVE_DIRENT_H
-# include <dirent.h>
-# define NAMLEN(dirent) strlen((dirent)->d_name)
-#else
-# define dirent direct
-# define NAMLEN(dirent) (dirent)->d_namlen
-# if HAVE_SYS_NDIR_H
-#  include <sys/ndir.h>
-# endif
-# if HAVE_SYS_DIR_H
-#  include <sys/dir.h>
-# endif
-# if HAVE_NDIR_H
-#  include <ndir.h>
-# endif
-#endif
-/* As recommended by autoconf for AC_HEADER_SYS_WAIT */
+#include <dirent.h>
 #include <sys/types.h>
-#if HAVE_SYS_WAIT_H
-# include <sys/wait.h>
-#endif
-#ifndef WEXITSTATUS
-# define WEXITSTATUS(stat_val) ((unsigned)(stat_val) >> 8)
-#endif
-#ifndef WIFEXITED
-# define WIFEXITED(stat_val) (((stat_val) & 255) == 0)
-#endif
-/* As recommended by autoconf for AC_HEADER_SYS_TIME */
-#if TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# if HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
-/* POSIX */
-#if HAVE_UNISTD_H
+#include <sys/wait.h>
 #include <unistd.h>
-#endif
-#if HAVE_FCNTL_H
 #include <fcntl.h>
-#endif
 #include <sys/stat.h>
 /* C89 */
 #include <stdio.h>
@@ -76,7 +35,7 @@
 #include "xalloc.h"
 #include "xvasprintf.h"
 /* common */
-#include "memory.h"
+#include <string.h>
 #include "strbuf.h"
 #include "error.h"
 #include "string-utils.h"
@@ -89,13 +48,8 @@
 bool
 file_exists(const char *file)
 {
-#if HAVE_LSTAT64
-    struct stat64 statbuf;
-    return (lstat64(file, &statbuf) != -1);
-#else
     struct stat statbuf;
-    return (stat(file, &statbuf) != -1);
-#endif
+    return (lstat(file, &statbuf) != -1);
 }
 
 /**
@@ -269,12 +223,8 @@ read_directory(const char *dir)
 	while ((ep = readdir(dp)) != NULL)
 		llist_add(files, xstrdup(ep->d_name));
 
-#if CLOSEDIR_VOID
-    	closedir(dp);
-#else
 	if (closedir(dp) == -1)
 		return NULL;
-#endif
 
 	return files;
 }

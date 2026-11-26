@@ -26,8 +26,7 @@
 #include <errno.h>  	    	/* C89 */
 #include <locale.h> 	    	/* gnulib (POSIX) */
 #include <stdbool.h>	    	/* gnulib (POSIX) */
-#include <readline/readline.h>	/* Readline */
-#include <readline/history.h>	/* Readline */
+#include "line-editing.h"
 #include <getopt.h>		/* gnulib (POSIX) */
 #include <gettext.h>	    	/* gnulib (gettext) */
 #define _(s) gettext(s)

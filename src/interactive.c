@@ -19,19 +19,14 @@
 
 #include <config.h>
 #include <sys/types.h>	    	    	/* POSIX */
-#if HAVE_SYS_WAIT_H
-# include <sys/wait.h>	    	    	/* POSIX */
-#endif
+#include <sys/wait.h>	    	    	/* POSIX */
 #include <unistd.h> 	    	    	/* gnulib (POSIX) */
-#if HAVE_WORDEXP_H
 #include <wordexp.h>	    	    	/* POSIX */
-#endif
 #include <signal.h> 	    	    	/* gnulib (POSIX) */
 #include <errno.h>  	    	    	/* C89 */
 #include <stdio.h>  	    	    	/* C89 */
 #include <stdlib.h> 	    	    	/* C89 */
-#include <readline/readline.h>	    	/* GNU Readline */
-#include <readline/history.h>	    	/* GNU Readline */
+#include "line-editing.h"
 #include <stdbool.h>			/* gnulib (POSIX) */
 #include <gettext.h> 	    	    	/* gnulib (gettext) */
 #define _(s) gettext(s)

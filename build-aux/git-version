@@ -1,0 +1,12 @@
+#!/bin/sh
+# Print the package version, for AC_INIT. A release tarball carries it
+# in .tarball-version; a git checkout derives it from the nearest
+# release tag, so 0.12.0-5-gabc1234 becomes 0.12.0.5-abc1234.
+if [ -f .tarball-version ]; then
+  v=$(cat .tarball-version)
+elif v=$(git describe --match '[0-9]*' --abbrev=7 --dirty 2>/dev/null); then
+  v=$(printf '%s\n' "$v" | sed 's/-\([0-9][0-9]*\)-g/.\1-/')
+else
+  v=UNKNOWN
+fi
+printf '%s' "$v"

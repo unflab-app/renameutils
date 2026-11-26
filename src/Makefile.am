@@ -6,8 +6,7 @@ AM_CPPFLAGS = \
 AM_CFLAGS = -Wall
 
 bin_PROGRAMS = qcmd icmd deurlname
-man_MANS = qcmd.1 icmd.1 deurlname.1
-EXTRA_DIST = $(man_MANS)
+dist_man_MANS = qcmd.1 icmd.1 deurlname.1
 
 qcmd_SOURCES = \
   apply.c \
@@ -15,6 +14,7 @@ qcmd_SOURCES = \
   edit.c \
   list.c \
   interactive.c \
+  line-editing.h \
   plan.c \
   qcmd.c \
   qcmd.h \
@@ -24,15 +24,16 @@ qcmd_LDADD = \
   editformats/lib_editformats.a \
   common/lib_common.a \
   ../gnulib-lib/libgnu.a \
-  $(INTLLIBS) \
+  $(LIBINTL) \
   $(READLINE_LIBS)
 
 icmd_SOURCES = \
-  icmd.c
+  icmd.c \
+  line-editing.h
 icmd_LDADD = \
   common/lib_common.a \
   ../gnulib-lib/libgnu.a \
-  $(INTLLIBS) \
+  $(LIBINTL) \
   $(READLINE_LIBS)
 
 deurlname_SOURCES = \
@@ -40,27 +41,32 @@ deurlname_SOURCES = \
 deurlname_LDADD = \
   common/lib_common.a \
   ../gnulib-lib/libgnu.a \
-  $(INTLLIBS)
+  $(LIBINTL)
+
+# qcmd and icmd decide what to do from the name they're run as.
+LINKS = qmv:qcmd qcp:qcmd imv:icmd icp:icmd
 
 all-local:
-	@[ -f qmv ] || (echo $(LN_S) qcmd qmv ; $(LN_S) qcmd qmv)
-	@[ -f qcp ] || (echo $(LN_S) qcmd qcp ; $(LN_S) qcmd qcp)
-	@[ -f imv ] || (echo $(LN_S) icmd imv ; $(LN_S) icmd imv)
-	@[ -f icp ] || (echo $(LN_S) icmd icp ; $(LN_S) icmd icp)
+	@for l in $(LINKS); do \
+	  [ -e "$${l%%:*}" ] || $(LN_S) "$${l#*:}" "$${l%%:*}"; \
+	done
 
-install-exec-local:
-	$(mkdir_p) $(DESTDIR)$(bindir)
-	@[ -f $(DESTDIR)$(bindir)/qmv ] || (echo $(LN_S) qcmd $(DESTDIR)$(bindir)/qmv ; $(LN_S) qcmd $(DESTDIR)$(bindir)/qmv)
-	@[ -f $(DESTDIR)$(bindir)/qcp ] || (echo $(LN_S) qcmd $(DESTDIR)$(bindir)/qcp ; $(LN_S) qcmd $(DESTDIR)$(bindir)/qcp)
-	@[ -f $(DESTDIR)$(bindir)/imv ] || (echo $(LN_S) icmd $(DESTDIR)$(bindir)/imv ; $(LN_S) icmd $(DESTDIR)$(bindir)/imv)
-	@[ -f $(DESTDIR)$(bindir)/icp ] || (echo $(LN_S) icmd $(DESTDIR)$(bindir)/icp ; $(LN_S) icmd $(DESTDIR)$(bindir)/icp)
+install-exec-hook:
+	@for l in $(LINKS); do \
+	  rm -f "$(DESTDIR)$(bindir)/$${l%%:*}"; \
+	  $(LN_S) "$${l#*:}" "$(DESTDIR)$(bindir)/$${l%%:*}"; \
+	done
 
-install-data-local:
-	$(mkdir_p) $(DESTDIR)$(man1dir)
-	@[ -f $(DESTDIR)$(man1dir)/qmv.1 ] || (echo $(LN_S) qcmd.1 $(DESTDIR)$(man1dir)/qmv.1 ; $(LN_S) qcmd.1 $(DESTDIR)$(man1dir)/qmv.1)
-	@[ -f $(DESTDIR)$(man1dir)/qcp.1 ] || (echo $(LN_S) qcmd.1 $(DESTDIR)$(man1dir)/qcp.1 ; $(LN_S) qcmd.1 $(DESTDIR)$(man1dir)/qcp.1)
-	@[ -f $(DESTDIR)$(man1dir)/imv.1 ] || (echo $(LN_S) icmd.1 $(DESTDIR)$(man1dir)/imv.1 ; $(LN_S) icmd.1 $(DESTDIR)$(man1dir)/imv.1)
-	@[ -f $(DESTDIR)$(man1dir)/icp.1 ] || (echo $(LN_S) icmd.1 $(DESTDIR)$(man1dir)/icp.1 ; $(LN_S) icmd.1 $(DESTDIR)$(man1dir)/icp.1)
+install-data-hook:
+	@for l in $(LINKS); do \
+	  rm -f "$(DESTDIR)$(man1dir)/$${l%%:*}.1"; \
+	  $(LN_S) "$${l#*:}.1" "$(DESTDIR)$(man1dir)/$${l%%:*}.1"; \
+	done
+
+uninstall-hook:
+	@for l in $(LINKS); do \
+	  rm -f "$(DESTDIR)$(bindir)/$${l%%:*}" "$(DESTDIR)$(man1dir)/$${l%%:*}.1"; \
+	done
 
 clean-local:
-	rm -f qmv qcp imv icp qmv.1 qcp.1 imv.1 icp.1
+	rm -f qmv qcp imv icp

@@ -1,0 +1,25 @@
+#!/bin/sh
+# Generate the build system from a git checkout: gnulib's modules and
+# its message catalogues, then configure, the Makefile.ins, and the po/
+# infrastructure (through autopoint). Release tarballs already contain
+# all of it, so this is only for building from git.
+#
+# Needs Autoconf, Automake and gettext's autopoint. gnulib-tool fetches
+# gnulib's own translations into gnulib-po/ with wget.
+set -eu
+cd "$(dirname "$0")"
+
+if [ ! -f gnulib/gnulib-tool ]; then
+  git submodule update --init gnulib
+fi
+
+gnulib/gnulib-tool --import \
+  --lib=libgnu --source-base=gnulib-lib --m4-base=gnulib-m4 \
+  --po-base=gnulib-po --po-domain=renameutils \
+  --doc-base=gnulib-doc --aux-dir=build-aux \
+  --no-conditional-dependencies --no-libtool --macro-prefix=gl \
+  bool configmake dirname filevercmp getline getopt-gnu gettext-h minmax \
+  progname quote quotearg strndup version-etc xalloc xstrndup \
+  xvasprintf yesno
+
+autoreconf --force --install

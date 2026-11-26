@@ -19,9 +19,7 @@
 
 #include <config.h>
 #include <sys/types.h>	    	/* POSIX */
-#if HAVE_SYS_WAIT_H
-# include <sys/wait.h>	    	/* POSIX */
-#endif
+#include <sys/wait.h>	    	/* POSIX */
 #include <unistd.h>		/* gnulib (POSIX) */
 #include <fcntl.h>  	    	/* gnulib (POSIX) */
 #include <sys/stat.h>	    	/* gnulib (POSIX) */
