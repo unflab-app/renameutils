@@ -4,7 +4,9 @@
 # release tag, so 0.12.0-5-gabc1234 becomes 0.12.0.5-abc1234.
 if [ -f .tarball-version ]; then
   v=$(cat .tarball-version)
-elif v=$(git describe --match '[0-9]*' --abbrev=7 --dirty 2>/dev/null); then
+# --tags, because actions/checkout turns the tag it was triggered by into
+# a lightweight one, which plain describe ignores.
+elif v=$(git describe --tags --match '[0-9]*' --abbrev=7 --dirty 2>/dev/null); then
   v=$(printf '%s\n' "$v" | sed 's/-\([0-9][0-9]*\)-g/.\1-/')
 else
   v=UNKNOWN
